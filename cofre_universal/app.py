@@ -11,7 +11,7 @@ from .models import Credential
 from .repository import CredentialRepository
 from .crypto import InvalidMasterPassword
 from .github_sync import GitHubConfigStore, GitHubContentsClient, GitHubError, GitHubConflict, GitHubSyncService
-from .mcp_catalog import AgentPolicyStore
+from .mcp_policy import AgentPolicyStore
 
 STYLE = """
 QWidget { background:#10131b; color:#e7eaf2; font-family:'Segoe UI'; font-size:10pt; }

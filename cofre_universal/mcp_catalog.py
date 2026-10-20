@@ -1,31 +1,11 @@
 """Servidor MCP local: metadados explícitos e broker sem operações genéricas."""
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 
 from .models import environment_variable_for_name
 from .repository import CredentialRepository
-from .security import protect, unprotect
-from .storage import app_data_dir
-
-
-class AgentPolicyStore:
-    """Consentimento MCP separado do acesso humano ao cofre."""
-    def __init__(self, path=None): self.path = path or app_data_dir() / "agent-policy.dpapi"
-
-    def enabled(self) -> bool:
-        from pathlib import Path
-        path = Path(self.path)
-        if not path.exists(): return False
-        return json.loads(unprotect(path.read_bytes())).get("metadata_access") is True
-
-    def set_enabled(self, enabled: bool) -> None:
-        from pathlib import Path
-        path = Path(self.path); path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(path.suffix + ".tmp")
-        temp.write_bytes(protect(json.dumps({"metadata_access": bool(enabled)}).encode("utf-8")))
-        temp.replace(path)
+from .mcp_policy import AgentPolicyStore
 
 
 class OperationBroker:

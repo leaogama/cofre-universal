@@ -66,16 +66,16 @@ Um agente que tenha controle irrestrito da sessão Windows ainda pode automatiza
 
 ```powershell
 pytest
-pyinstaller --noconfirm --windowed --onefile --name CofreUniversal --collect-all nacl run_app.py
+python -m nuitka run_app.py --follow-imports --enable-plugin=pyside6 --output-dir=deployment --quiet --noinclude-qt-translations --onefile --windows-console-mode=disable --noinclude-dlls=*.cpp.o --noinclude-dlls=*.qsb --include-qt-plugins=platforminputcontexts --assume-yes-for-downloads
 pyinstaller --noconfirm --console --onefile --name cofre --collect-all nacl run_cli.py
 ```
 
-A construção gera `dist/CofreUniversal.exe` (interface) e `dist/cofre.exe` (CLI). A validação da interface, DPAPI, bandeja, inicialização com Windows e geração do `.exe` deve ser feita em Windows 11 com Python 3.13. Não publique credenciais ou arquivos de cache; `.gitignore` exclui bancos, logs, builds, ambientes e `.env`.
+A construção gera `deployment/run_app.exe` (interface) e `dist/cofre.exe` (CLI). A interface usa Nuitka com o plugin PySide6; a CLI usa PyInstaller. Não publique credenciais ou arquivos de cache; `.gitignore` exclui bancos, logs, builds, ambientes e `.env`.
 
 ## Estado
 
 - Implementados: interface CRUD, senha mestra, criptografia local/remota, DPAPI, sincronização REST manual/automática e resolução de conflito com backup cifrado, execução por projeto, consentimento MCP separado e ferramentas sem valores secretos.
-- Validado localmente: Python 3.13.15 em Windows 11 (build 26200), 15 testes passando, UI smoke em modo offscreen, round-trip DPAPI e builds PyInstaller GUI/CLI; `cofre.exe --help` executado.
+- Validado localmente: Python 3.13.15 em Windows 11 (build 26200), 15 testes passando, UI smoke em modo offscreen, round-trip DPAPI, executável GUI Nuitka inicializado e build PyInstaller da CLI; `cofre.exe --help` executado.
 - Ainda não validado: sincronização autenticada com um repositório GitHub real, fluxo visual completo em desktop e conexão a um host MCP externo. Os testes da API usam respostas mockadas e tokens fictícios.
 - Nenhuma credencial real foi solicitada ou usada no desenvolvimento.
 
