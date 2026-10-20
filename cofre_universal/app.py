@@ -31,12 +31,13 @@ class CredentialDialog(QDialog):
         self.setWindowTitle("Editar credencial" if credential else "Nova credencial")
         self.setMinimumWidth(440)
         self.ident = credential.id if credential else ""
+        self.credential = credential
         form = QFormLayout(self)
         self.name = QLineEdit(credential.name if credential else "")
         self.service = QLineEdit(credential.service if credential else "")
         self.project = QLineEdit(credential.project if credential else "")
         self.environment = QComboBox(); self.environment.setEditable(True)
-        self.environment.addItems(["Desenvolvimento", "Homologação", "Produção"])
+        self.environment.addItems(["Desenvolvimento", "Testes", "Homologação", "Produção", "Sandbox", "Local"])
         if credential: self.environment.setCurrentText(credential.environment)
         self.secret = QLineEdit(credential.secret if credential else ""); self.secret.setEchoMode(QLineEdit.EchoMode.Password)
         reveal = QPushButton("Mostrar")
@@ -51,10 +52,13 @@ class CredentialDialog(QDialog):
 
     def value(self) -> Credential:
         return Credential(self.ident,self.name.text().strip(),self.service.text().strip(),self.project.text().strip(),
-                          self.environment.currentText().strip(),self.notes.toPlainText().strip(),self.secret.text())
+                          self.environment.currentText().strip(),self.notes.toPlainText().strip(),self.secret.text(),
+                          not bool(self.secret.text()))
 
     def accept(self):
-        if not all((self.name.text().strip(),self.service.text().strip(),self.project.text().strip(),self.secret.text())):
+        required=(self.name.text().strip(),self.service.text().strip(),self.project.text().strip())
+        can_remain_draft=bool(self.credential and self.credential.pending_secret)
+        if not all(required) or (not self.secret.text() and not can_remain_draft):
             QMessageBox.warning(self,"Campos obrigatórios","Preencha nome, serviço, projeto e valor da chave."); return
         super().accept()
 
@@ -123,6 +127,7 @@ class MainWindow(QMainWindow):
             b=QPushButton(label); b.clicked.connect(fn)
             if primary: b.setObjectName("primary")
             bar.addWidget(b)
+        ai_help=QPushButton("Cadastro assistido por IA"); ai_help.clicked.connect(self.show_ai_enrollment_help); bar.addWidget(ai_help)
         layout.addLayout(bar)
         self.table=QTableWidget(0,6); self.table.setHorizontalHeaderLabels(["CHAVE","SERVIÇO","PROJETO","AMBIENTE","VALOR","AÇÃO"])
         self.table.setAlternatingRowColors(True); self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -140,6 +145,12 @@ class MainWindow(QMainWindow):
         self.sync_button=QPushButton("Sincronizar agora"); self.sync_button.clicked.connect(lambda: self.sync_github(silent=False)); settings.addWidget(self.sync_button)
         self.github_settings_button=QPushButton("Configurar GitHub"); self.github_settings_button.clicked.connect(self.configure_github); settings.addWidget(self.github_settings_button)
         layout.addLayout(settings)
+        ai_permissions=QHBoxLayout(); ai_permissions.addStretch(1)
+        self.ai_draft_access=QCheckBox("Permitir à IA preparar rascunhos sem valores secretos")
+        try: self.ai_draft_access.setChecked(AgentPolicyStore().drafts_enabled())
+        except Exception: self.ai_draft_access.setChecked(False)
+        self.ai_draft_access.toggled.connect(self._set_ai_draft_access)
+        ai_permissions.addWidget(self.ai_draft_access); layout.addLayout(ai_permissions)
         self.tray=None
         self.setCentralWidget(central); self._setup_tray(); self.refresh(); self._reset_inactivity()
         QApplication.instance().installEventFilter(self)
@@ -198,6 +209,20 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.mcp_access.blockSignals(True); self.mcp_access.setChecked(False); self.mcp_access.blockSignals(False)
             QMessageBox.critical(self,"Permissão MCP não salva",str(exc))
+
+    def _set_ai_draft_access(self, enabled):
+        try: AgentPolicyStore().set_drafts_enabled(enabled)
+        except Exception as exc:
+            self.ai_draft_access.blockSignals(True); self.ai_draft_access.setChecked(False); self.ai_draft_access.blockSignals(False)
+            QMessageBox.critical(self,"Permissão de cadastro por IA não salva",str(exc))
+
+    def show_ai_enrollment_help(self):
+        QMessageBox.information(
+            self, "Cadastro assistido por IA",
+            "Ative a permissão abaixo e conecte seu agente ao servidor MCP ‘cofre mcp’. "
+            "Peça para preparar uma credencial informando provedor, tipo, projeto e ambiente. "
+            "A IA cria somente um rascunho padronizado. Depois selecione-o e clique em Editar "
+            "para digitar o valor secreto diretamente nesta interface. Nunca envie a chave ao agente.")
 
     def configure_github(self):
         store=GitHubConfigStore()
@@ -268,12 +293,23 @@ class MainWindow(QMainWindow):
         try: items=self.repo.list_metadata(self.search.text())
         except Exception as exc:
             self.state.setText("●  Cofre indisponível"); QMessageBox.critical(self,"Erro ao abrir cofre",str(exc)); return
+        pending_count=sum(bool(item.get("secret_pending")) for item in items)
+        if pending_count:
+            self.statusBar().showMessage(f"{pending_count} rascunho(s) aguardando preenchimento do valor na interface",0)
+        else:
+            self.statusBar().clearMessage()
         self.table.setRowCount(len(items))
         for r,c in enumerate(items):
             self.table.setItem(r,0,QTableWidgetItem(c["name"])); self.table.setItem(r,1,QTableWidgetItem(c["service"]))
             self.table.setItem(r,2,QTableWidgetItem(c["project"])); self.table.setItem(r,3,QTableWidgetItem(c["environment"]))
-            reveal=QPushButton("Mostrar"); reveal.clicked.connect(lambda _,row=r: self.toggle_secret(row)); self.table.setCellWidget(r,4,reveal)
-            copy=QPushButton("Copiar"); copy.clicked.connect(lambda _,row=r: self.copy_secret(row)); self.table.setCellWidget(r,5,copy)
+            pending=bool(c.get("secret_pending"))
+            if pending:
+                reveal=QPushButton("Preencher valor"); reveal.clicked.connect(lambda _,row=r: self._edit_row(row))
+            else:
+                reveal=QPushButton("Mostrar"); reveal.clicked.connect(lambda _,row=r: self.toggle_secret(row))
+            self.table.setCellWidget(r,4,reveal)
+            copy=QPushButton("Pendente" if pending else "Copiar"); copy.setEnabled(not pending)
+            copy.clicked.connect(lambda _,row=r: self.copy_secret(row)); self.table.setCellWidget(r,5,copy)
             self.table.item(r,0).setData(Qt.ItemDataRole.UserRole,c["id"])
 
     def selected(self):
@@ -290,6 +326,10 @@ class MainWindow(QMainWindow):
         if not c: return
         d=CredentialDialog(self,c)
         if d.exec()==QDialog.DialogCode.Accepted: self.repo.save(d.value()); self.refresh()
+
+    def _edit_row(self,row):
+        self.table.selectRow(row)
+        self.edit_credential()
 
     def delete_credential(self):
         c=self.selected()

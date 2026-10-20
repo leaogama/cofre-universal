@@ -62,6 +62,14 @@ As ferramentas MCP podem listar e pesquisar metadados, informar nomes de variáv
 
 Um agente que tenha controle irrestrito da sessão Windows ainda pode automatizar a interface, ler a memória do processo ou inspecionar variáveis de ambiente de processos que iniciou. MCP não fornece isolamento contra um agente com essas permissões.
 
+### Cadastro assistido por IA
+
+Na interface, habilite **Permitir à IA preparar rascunhos sem valores secretos**. Essa autorização é independente da consulta de metadados e começa desativada. Configure o host de IA para iniciar `cofre mcp` e peça, por exemplo: “Prepare uma credencial OpenAI do tipo API Key para o projeto atendimento, no ambiente produção.” A ferramenta MCP aceita somente provedor, tipo, projeto e ambiente; não possui campo para receber o valor da chave.
+
+O cadastro padroniza provedores conhecidos (por exemplo, `openai` vira `OpenAI`), projetos em minúsculas com hífens e ambientes em português. Os tipos permitidos são API Key, API Token, OAuth Client Secret, Webhook Signing Secret, Database Connection String, Service Account Key e Other Secret. O agente pode criar o rascunho ou detectar um registro existente. Depois, abra o Cofre Universal, clique em **Preencher valor** e digite o segredo localmente. Rascunhos sem valor aparecem como pendentes e impedem `cofre run` para aquele projeto até serem preenchidos.
+
+O agente recebe apenas os metadados necessários para esse fluxo. Não cole segredos em prompts, conversas ou respostas. Se um agente tiver controle irrestrito da sessão Windows, ele ainda pode automatizar a interface após o desbloqueio; a permissão MCP não limita capacidades concedidas diretamente pelo Windows.
+
 ## Testes e executável
 
 ```powershell
@@ -75,7 +83,7 @@ A construção gera `deployment/run_app.exe` (interface) e `dist/cofre.exe` (CLI
 ## Estado
 
 - Implementados: interface CRUD, senha mestra, criptografia local/remota, DPAPI, sincronização REST manual/automática e resolução de conflito com backup cifrado, execução por projeto, consentimento MCP separado e ferramentas sem valores secretos.
-- Validado localmente: Python 3.13.15 em Windows 11 (build 26200), 15 testes passando, UI smoke em modo offscreen, round-trip DPAPI, executável GUI Nuitka inicializado e build PyInstaller da CLI; `cofre.exe --help` executado.
+- Validado localmente: Python 3.13.15 em Windows 11 (build 26200), 18 testes passando, UI smoke em modo offscreen, round-trip DPAPI, GUI Nuitka 0.2.0 iniciada sem erro de importação Qt e CLI PyInstaller 0.2.0; `cofre.exe --help` executado.
 - Ainda não validado: sincronização autenticada com um repositório GitHub real, fluxo visual completo em desktop e conexão a um host MCP externo. Os testes da API usam respostas mockadas e tokens fictícios.
 - Nenhuma credencial real foi solicitada ou usada no desenvolvimento.
 

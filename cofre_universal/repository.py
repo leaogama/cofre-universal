@@ -104,7 +104,8 @@ class CredentialRepository:
     @staticmethod
     def _credential(data: dict[str, Any]) -> Credential:
         return Credential(data["id"], data["name"], data["service"], data["project"],
-                          data["environment"], data.get("usage_notes", ""), data["secret"])
+                          data["environment"], data.get("usage_notes", ""), data["secret"],
+                          bool(data.get("secret_pending", not data.get("secret"))))
 
     def list_credentials(self, query: str = "") -> list[Credential]:
         self._require_unlocked()
@@ -114,10 +115,12 @@ class CredentialRepository:
             items = [c for c in items if q in " ".join((c.name,c.service,c.project,c.environment,c.usage_notes)).casefold()]
         return sorted(items, key=lambda c: (c.service.casefold(), c.name.casefold()))
 
-    def list_metadata(self, query: str = "") -> list[dict[str, str]]:
+    def list_metadata(self, query: str = "") -> list[dict[str, str | bool]]:
         self._require_unlocked()
         fields = ("id", "name", "service", "project", "environment", "usage_notes")
-        items = [{field: str(item.get(field, "")) for field in fields} for item in self._credentials]
+        items = [{**{field: str(item.get(field, "")) for field in fields},
+                  "secret_pending": bool(item.get("secret_pending", not item.get("secret")))}
+                 for item in self._credentials]
         q = query.casefold().strip()
         if q:
             items = [item for item in items if q in " ".join(item.values()).casefold()]
@@ -127,7 +130,8 @@ class CredentialRepository:
         self._require_unlocked()
         ident = item.id or str(uuid.uuid4())
         data = {"id": ident, "name": item.name, "service": item.service, "project": item.project,
-                "environment": item.environment, "usage_notes": item.usage_notes, "secret": item.secret}
+                "environment": item.environment, "usage_notes": item.usage_notes, "secret": item.secret,
+                "secret_pending": bool(item.pending_secret and not item.secret)}
         credentials = list(self._credentials)
         for index, existing in enumerate(self._credentials):
             if existing["id"] == ident:
@@ -139,6 +143,20 @@ class CredentialRepository:
         self.store.save(document)
         self._credentials = credentials
         return self._credential(data)
+
+    def create_draft(self, *, name: str, service: str, project: str, environment: str,
+                     usage_notes: str = "") -> tuple[Credential, bool]:
+        """Cria somente metadados; este método não aceita um valor secreto."""
+        self._require_unlocked()
+        identity = (name.casefold(), service.casefold(), project.casefold(), environment.casefold())
+        for existing in self._credentials:
+            current = (existing["name"].casefold(), existing["service"].casefold(),
+                       existing["project"].casefold(), existing["environment"].casefold())
+            if current == identity:
+                return self._credential(existing), False
+        draft = Credential(str(uuid.uuid4()), name, service, project, environment,
+                           usage_notes, "", True)
+        return self.save(draft), True
 
     def delete(self, ident: str) -> None:
         self._require_unlocked()

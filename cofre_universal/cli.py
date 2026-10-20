@@ -6,7 +6,8 @@ import os
 import subprocess
 import sys
 from .repository import CredentialRepository
-from .mcp_catalog import AgentPolicyStore, build_server
+from .mcp_catalog import build_server
+from .mcp_policy import AgentPolicyStore
 
 
 def run_app(project: str, command: list[str], db_path: str | None = None) -> int:
@@ -18,6 +19,8 @@ def run_app(project: str, command: list[str], db_path: str | None = None) -> int
     injected_names = set()
     for credential in repo.list_credentials():
         if credential.project.casefold() == project.casefold():
+            if getattr(credential, "pending_secret", False) or not credential.secret:
+                raise ValueError(f"O projeto contém um rascunho sem valor secreto: {credential.name}")
             variable = credential.environment_name
             if variable:
                 if variable in injected_names:
@@ -45,7 +48,7 @@ def main() -> None:
     run.add_argument("command", nargs=argparse.REMAINDER)
     env_parser = sub.add_parser("env-example", help="Lista somente nomes de variáveis de um projeto")
     env_parser.add_argument("--project", required=True)
-    sub.add_parser("mcp", help="Inicia o servidor MCP local de metadados")
+    sub.add_parser("mcp", help="Inicia o servidor MCP local conforme permissões habilitadas")
     args = parser.parse_args()
     if args.action == "mcp":
         try:
@@ -74,14 +77,15 @@ def run_mcp() -> None:
     from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit
     app = QApplication.instance() or QApplication([])
     policy = AgentPolicyStore()
-    if not policy.enabled():
-        raise PermissionError("Acesso MCP desativado. Ative-o nas permissões da interface humana.")
+    if not policy.any_enabled():
+        raise PermissionError("Acesso MCP desativado. Ative as permissões desejadas na interface humana.")
     repo = CredentialRepository()
     password, ok = QInputDialog.getText(None, "Desbloquear para MCP", "Senha mestra do Cofre Universal:", QLineEdit.EchoMode.Password)
     if not ok: return
     try:
         repo.unlock(password)
-        server = build_server(repo, allow_metadata=policy.enabled())
+        server = build_server(repo, allow_metadata=policy.enabled(),
+                              allow_drafts=policy.drafts_enabled())
         server.run("stdio")
     finally:
         repo.lock()

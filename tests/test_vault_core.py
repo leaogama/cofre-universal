@@ -121,6 +121,45 @@ class VaultCoreTests(unittest.TestCase):
         self.assertIn("DEMO_KEY",repr(result))
         with self.assertRaises(PermissionError): build_server(repo, allow_metadata=False)
 
+    def test_ai_draft_is_standardized_and_never_accepts_a_secret(self):
+        from cofre_universal.mcp_catalog import prepare_credential_draft
+        repo=CredentialRepository(store=MemoryStore()); repo.create("senha fictícia 123456")
+        result=prepare_credential_draft(repo, provider="openai", credential_type="API Key",
+                                        project="Meu Projeto", environment="prod")
+        self.assertEqual(result["name"], "OpenAI API Key")
+        self.assertEqual(result["project"], "meu-projeto")
+        self.assertEqual(result["environment"], "Produção")
+        self.assertTrue(result["secret_pending"])
+        self.assertNotIn("secret", result)
+        saved=repo.list_credentials()[0]
+        self.assertEqual(saved.secret, "")
+        self.assertTrue(saved.pending_secret)
+        duplicate=prepare_credential_draft(repo, provider="OpenAI", credential_type="API Key",
+                                           project="meu projeto", environment="production")
+        self.assertFalse(duplicate["draft_created"])
+        self.assertEqual(len(repo.list_credentials()), 1)
+
+    def test_mcp_draft_permission_is_separate_from_metadata(self):
+        from cofre_universal.mcp_catalog import build_server
+        from cofre_universal.mcp_policy import AgentPolicyStore
+        with tempfile.TemporaryDirectory() as folder:
+            policy=AgentPolicyStore(f"{folder}/policy.dpapi")
+            policy.set_drafts_enabled(True)
+            self.assertFalse(policy.enabled())
+            self.assertTrue(policy.drafts_enabled())
+            policy.set_enabled(True)
+            self.assertTrue(policy.any_enabled())
+            self.assertTrue(policy.drafts_enabled())
+        repo=CredentialRepository(store=MemoryStore()); repo.create("senha fictícia 123456")
+        server=build_server(repo, allow_metadata=False, allow_drafts=True)
+        tools=asyncio.run(server.list_tools())
+        self.assertEqual({tool.name for tool in tools}, {"preparar_credencial"})
+        result=asyncio.run(server.call_tool("preparar_credencial", {
+            "provedor":"GitHub", "tipo":"API Token", "projeto":"demo", "ambiente":"dev"}))
+        self.assertNotIn("'secret':", repr(result).casefold())
+        self.assertNotIn('"secret":', repr(result).casefold())
+        self.assertEqual(repo.list_credentials()[0].secret, "")
+
     def test_windows_dpapi_roundtrip(self):
         import sys
         if sys.platform != "win32": self.skipTest("DPAPI é específico do Windows")
@@ -197,6 +236,20 @@ class VaultCoreTests(unittest.TestCase):
             result=cli.run_app("demo",["python","app.py"],"unused")
         self.assertEqual(result,7)
         self.assertEqual(child.call_args.kwargs["env"]["OPENAI_API_KEY"],"FAKE_SECRET")
+
+    def test_run_rejects_project_with_unfilled_ai_draft(self):
+        from cofre_universal import cli
+        class FakeCredential:
+            project="demo"; name="OpenAI API Key"; secret=""; pending_secret=True
+            environment_name="OPENAI_API_KEY"
+        class FakeRepository:
+            def __init__(self, path=None): pass
+            def unlock(self, password): pass
+            def list_credentials(self): return [FakeCredential()]
+        with patch.object(cli,"CredentialRepository",FakeRepository), patch.object(cli.getpass,"getpass",return_value="senha fake"), patch.object(cli.subprocess,"run") as child:
+            with self.assertRaisesRegex(ValueError, "rascunho sem valor secreto"):
+                cli.run_app("demo",["python","app.py"],"unused")
+            child.assert_not_called()
 
     def test_env_example_outputs_names_only(self):
         from cofre_universal import cli

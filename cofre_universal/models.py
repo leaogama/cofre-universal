@@ -16,13 +16,14 @@ class Credential:
     environment: str
     usage_notes: str
     secret: str
+    pending_secret: bool = False
 
     @property
     def environment_name(self) -> str:
         return environment_variable_for_name(self.name)
 
-    def safe_metadata(self) -> dict[str, str]:
+    def safe_metadata(self) -> dict[str, str | bool]:
         """Metadados permitidos para catálogos; deliberadamente omite o segredo."""
         return {"id": self.id, "name": self.name, "service": self.service,
                 "project": self.project, "environment": self.environment,
-                }
+                "secret_pending": self.pending_secret}

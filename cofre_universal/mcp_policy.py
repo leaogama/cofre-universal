@@ -20,10 +20,30 @@ class AgentPolicyStore:
             return False
         return json.loads(unprotect(path.read_bytes())).get("metadata_access") is True
 
+    def drafts_enabled(self) -> bool:
+        path = Path(self.path)
+        if not path.exists():
+            return False
+        return json.loads(unprotect(path.read_bytes())).get("draft_creation") is True
+
+    def any_enabled(self) -> bool:
+        return self.enabled() or self.drafts_enabled()
+
     def set_enabled(self, enabled: bool) -> None:
+        self._update("metadata_access", enabled)
+
+    def set_drafts_enabled(self, enabled: bool) -> None:
+        self._update("draft_creation", enabled)
+
+    def _update(self, permission: str, enabled: bool) -> None:
         path = Path(self.path)
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_suffix(path.suffix + ".tmp")
-        payload = json.dumps({"metadata_access": bool(enabled)}).encode("utf-8")
+        try:
+            settings = json.loads(unprotect(path.read_bytes())) if path.exists() else {}
+        except (ValueError, OSError):
+            settings = {}
+        settings[permission] = bool(enabled)
+        payload = json.dumps(settings).encode("utf-8")
         temp.write_bytes(protect(payload))
         temp.replace(path)
